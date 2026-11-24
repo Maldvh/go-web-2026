@@ -1,4 +1,3 @@
-# GameDex · votre travail
 
 C'est ici que vous écrivez GameDex, mini TP après mini TP.
 
