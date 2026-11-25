@@ -1,61 +1,82 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"
 	"fmt"
-	"net/http"
-	"strconv"
 	"log"
+	"net/http"
+	"time"
 )
 
+const baseURL = "http://localhost:8081"
 
+var client = &http.Client{Timeout: 3 * time.Second}
 
-func accueil(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <title>Gamedex</title>
-  <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-  <h1>Gamedex</h1>
-  <p><a href="/jeux">Voir la liste des jeux</a></p>
-</body>
-</html>`)
+type Game struct {
+	ID     int      `json:"id"`
+	Name   string   `json:"name"`
+	Year   int      `json:"year"`
+	Studio string   `json:"studio"`
+	Genres []string `json:"genres"`
 }
 
-func listeJeux(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Liste des jeux")
+type Tournament struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	GameID int    `json:"game_id"`
 }
+
+
 func main() {
-	port := flag.String("port", "8080", "port du serveur")
-	flag.Parse()
+	games, err := FetchGames()
+	if err != nil {
+		log.Fatal("Impossible de récupérer les jeux : ", err)
+	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", accueil)
-	mux.HandleFunc("GET /jeux", listeJeux)
-	mux.HandleFunc("GET /jeux/{id}", detailJeu)
+	tournaments, err := FetchTournaments()
+	if err != nil {
+		log.Fatal("Impossible de récupérer les tournois : ", err)
+	}
 
-	fs := http.FileServer(http.Dir("static"))
-	mux.Handle("GET /static/", http.StripPrefix("/static/", fs))
+	byGame := make(map[int][]Tournament)
+	for _, t := range tournaments {
+		byGame[t.GameID] = append(byGame[t.GameID], t)
+	}
 
-	addr := ":" + *port
-	fmt.Printf("Serveur sur http://localhost%s\n", addr)
-	log.Fatal(http.ListenAndServe(addr,mux))
+	for _, g := range games {
+		fmt.Printf("%d. %s (%d) - %d tournoi(s)\n", g.ID, g.Name, g.Year, len(byGame[g.ID]))
+	}
 }
 
-func detailJeu(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil || id < 1 {
-		http.Error(w, "id invalide", http.StatusBadRequest)
-		return
+func FetchGames() ([]Game, error) {
+	resp, err := client.Get(baseURL + "/api/games")
+	if err != nil {
+		return nil, err
 	}
-	if id > 12 {
-		http.NotFound(w, r) 
-		return
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("l'API a répondu %d", resp.StatusCode)
 	}
-	fmt.Fprintf(w, "jeu %d\n", id)
+
+	var games []Game
+	err = json.NewDecoder(resp.Body).Decode(&games)
+	return games, err
+}
+
+func FetchTournaments() ([]Tournament, error) {
+	resp, err := client.Get(baseURL + "/api/tournaments")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("l'API a répondu %d", resp.StatusCode)
+	}
+
+	var tournaments []Tournament
+	err = json.NewDecoder(resp.Body).Decode(&tournaments)
+	return tournaments, err
 }
 
